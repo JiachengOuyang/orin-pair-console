@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orin 配对控制台</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="role-orin">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">NX</div>
+      <div>
+        <h1>Orin 配对控制台</h1>
+        <p>选择连接方式 · 生成配对码 · 管理已配对设备</p>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="banner" id="rootBanner" hidden>
+    普通用户模式：配对和管理公钥正常。要改网络或安装环境，在「环境准备」里输入登录密码切换为 root，程序会自动重启。
+  </div>
+
+  <main class="layout">
+    <section class="col">
+      <article class="card">
+        <div class="card-head">
+          <div><span class="step">00</span><h2>环境准备</h2></div>
+          <span class="hint" id="envHint"></span>
+        </div>
+        <div class="kv" id="envList"></div>
+        <div class="actions">
+          <button class="btn primary" id="setupBtn">安装 / 修复</button>
+        </div>
+        <p class="footnote" id="envNote"></p>
+
+        <div class="root-switch" id="rootSwitch" hidden>
+          <input class="input" type="password" id="rootPw" placeholder="登录密码（sudo 密码）"
+                 autocomplete="current-password">
+          <button class="btn primary" id="rootBtn">切换为 root 并重启</button>
+          <p class="footnote">密码只发给本机 127.0.0.1，不写入任何文件；sudo 免密可以留空。</p>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <div><span class="step">01</span><h2>连接方式</h2></div>
+          <span class="hint" id="netHint"></span>
+        </div>
+
+        <div class="tiles" id="methodTiles">
+          <label class="tile" data-method="usb">
+            <input type="radio" name="method" value="usb" checked>
+            <span class="tile-icon">USB</span>
+            <span class="tile-body">
+              <strong>USB device</strong>
+              <em>插着刷机口 USB-C 数据线时用，地址固定 192.168.55.1，不改配置</em>
+            </span>
+          </label>
+          <label class="tile" data-method="mdns">
+            <input type="radio" name="method" value="mdns">
+            <span class="tile-icon">mDNS</span>
+            <span class="tile-body">
+              <strong>局域网 mDNS</strong>
+              <em>两台机器在同一路由器 / 局域网时用，orin.local 换地址不用改配置</em>
+            </span>
+          </label>
+          <label class="tile" data-method="manual">
+            <input type="radio" name="method" value="manual">
+            <span class="tile-icon">IP</span>
+            <span class="tile-body">
+              <strong>静态 IP</strong>
+              <em>一根网线直连，或需要固定地址时用；需 root，会改 nmcli 连接</em>
+            </span>
+          </label>
+        </div>
+
+        <div class="tips">
+          <span class="tips-title">怎么选</span>
+          <div class="tip">
+            <span class="cond">插着 USB-C 数据线到刷机口</span>
+            <span class="pick">USB device</span>
+          </div>
+          <div class="tip">
+            <span class="cond">两台机器在同一路由器 / 局域网</span>
+            <span class="pick">mDNS（orin.local）</span>
+          </div>
+          <div class="tip">
+            <span class="cond">一根网线直连，或要固定地址</span>
+            <span class="pick">静态 IP（需 root）</span>
+          </div>
+          <div class="tip">
+            <span class="cond">跨网段、虚拟机在 NAT 后、校园网隔离</span>
+            <span class="pick">Tailscale（见右侧「远程组网」）</span>
+          </div>
+        </div>
+
+        <div class="manual" id="manualFields" hidden>
+          <label class="field">
+            <span>连接 / 网卡</span>
+            <select class="select" id="connSelect"></select>
+          </label>
+          <label class="field">
+            <span>地址（CIDR）</span>
+            <input class="input mono" id="addrInput" placeholder="192.168.1.50/24" autocomplete="off">
+          </label>
+          <label class="field">
+            <span>网关（直连可留空）</span>
+            <input class="input mono" id="gwInput" placeholder="192.168.1.1" autocomplete="off">
+          </label>
+        </div>
+
+        <div class="actions">
+          <button class="btn primary" id="applyBtn">应用并检测</button>
+          <button class="btn ghost" id="revertBtn">还原网络</button>
+          <button class="btn ghost" id="fwBtn">放行 22 端口</button>
+        </div>
+        <p class="footnote" id="netNote"></p>
+      </article>
+
+      <article class="card code-card">
+        <div class="card-head">
+          <div><span class="step">02</span><h2>配对码</h2></div>
+          <button class="btn ghost small" id="refreshCode">更换</button>
+        </div>
+        <div class="code" id="codeBox"><span class="digit">—</span></div>
+        <div class="code-actions">
+          <button class="btn ghost small" id="copyCode">复制配对码</button>
+          <span class="hint">Windows 端输入这 6 位数字完成配对，成功后自动更换。</span>
+        </div>
+      </article>
+    </section>
+
+    <aside class="col">
+      <article class="card">
+        <div class="card-head">
+          <h2>本机状态</h2>
+          <span class="hint" id="hostName"></span>
+        </div>
+        <div class="kv" id="machineInfo"></div>
+        <div class="addr-list" id="addrList"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>远程组网</h2>
+          <span class="hint" id="tsHint">Tailscale</span>
+        </div>
+        <div class="kv" id="tsList"></div>
+        <div class="actions">
+          <button class="btn primary small" id="tsInstall" hidden>安装 Tailscale</button>
+          <button class="btn primary small" id="tsLogin" hidden>登录</button>
+          <button class="btn ghost small" id="tsCopy" hidden>复制地址</button>
+        </div>
+        <p class="footnote" id="tsNote"></p>
+        <p class="footnote" id="tsAuth" hidden></p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>已配对设备</h2>
+          <span class="hint" id="clientCount"></span>
+        </div>
+        <div class="client-list" id="clientList"></div>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>日志</h2>
+          <span class="hint">最近 40 条</span>
+        </div>
+        <pre class="log" id="logBox">暂无日志</pre>
+        <p class="footnote" id="logFile" hidden></p>
+      </article>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="modal">
+    <form method="dialog" class="modal-inner">
+      <h3 id="modalTitle">确认</h3>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" value="cancel">取消</button>
+        <button class="btn primary" id="modalOk" value="ok">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="gate">
+    <form class="modal-inner" id="gateForm">
+      <h3>远程访问需要配对码</h3>
+      <p class="modal-body">
+        这个页面不是从 Orin 本机打开的。输入 Orin 屏幕上或启动终端里显示的
+        6 位配对码。
+      </p>
+      <input class="input code-input" id="gateCode" maxlength="6" inputmode="numeric"
+             autocomplete="one-time-code" placeholder="000000">
+      <div class="modal-actions">
+        <button class="btn primary" type="submit" id="gateOk">进入</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/static/common.js" defer></script>
+  <script src="/static/orin.js" defer></script>
+</body>
+</html>

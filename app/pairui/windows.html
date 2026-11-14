@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Windows 配对控制台</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="role-windows">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">WIN</div>
+      <div>
+        <h1>Windows 配对控制台</h1>
+        <p>扫描 Orin · 输入配对码 · 管理 ssh 通道</p>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <div class="banner" id="remoteBanner" hidden>
+    Orin 端已经解除这条配对，或配对令牌失效。
+    <button class="btn small ghost" id="cleanupBtn">清理本地配置</button>
+  </div>
+
+  <main class="layout">
+    <section class="col">
+      <article class="card" id="pairView">
+        <div class="card-head">
+          <div><span class="step">01</span><h2>找到 Orin</h2></div>
+          <span class="hint" id="scanHint">USB 直连、局域网或 Tailscale</span>
+        </div>
+        <div class="row">
+          <input class="input mono" id="manualHost" placeholder="192.168.55.1、orin.local 或 100.x，可带端口" autocomplete="off">
+          <button class="btn" id="scanBtn">扫描</button>
+        </div>
+        <p class="footnote">
+          USB 线插在刷机口时直接扫；同一局域网直接扫或填 <code>orin.local</code>；
+          两端装了 Tailscale 会自动列出 <code>100.x</code> 对端；其他情况填 IP，可带端口。
+        </p>
+        <div class="results" id="scanResults">
+          <div class="empty">点“扫描”查找已连接的 Orin。</div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="card-head">
+          <div><span class="step">02</span><h2>输入配对码</h2></div>
+          <span class="hint">显示在 Orin 界面上</span>
+        </div>
+        <input class="input code-input" id="codeInput" maxlength="6" inputmode="numeric"
+               autocomplete="one-time-code" placeholder="000000">
+        <div class="actions">
+          <button class="btn primary" id="pairBtn" disabled>完成配对</button>
+        </div>
+        <p class="footnote">
+          配对会生成（或复用）<code id="keyHint">~/.ssh/id_ed25519</code>，并把
+          <code>Host orin</code> 写进 <code id="configHint">~/.ssh/config</code>。
+        </p>
+      </article>
+
+      <article class="card" id="pairedView" hidden>
+        <div class="card-head">
+          <div><span class="step">OK</span><h2>配对信息</h2></div>
+          <span class="tag ok" id="pairChip">已配对</span>
+        </div>
+        <div class="kv" id="pairInfo"></div>
+        <div class="actions">
+          <button class="btn" id="testBtn">测试连接</button>
+          <button class="btn ghost" id="hostkeyBtn">更新指纹</button>
+          <button class="btn ghost" id="copySsh">复制 ssh 命令</button>
+          <button class="btn danger" id="unpairBtn">解除配对</button>
+        </div>
+        <div class="test-result" id="testResult" hidden></div>
+        <details class="details">
+          <summary>SSH 配置预览</summary>
+          <pre class="log" id="sshPreview"></pre>
+        </details>
+      </article>
+    </section>
+
+    <aside class="col">
+      <article class="card">
+        <div class="card-head">
+          <h2>运行环境</h2>
+          <span class="hint" id="envHint"></span>
+        </div>
+        <div class="kv" id="envInfo"></div>
+        <div class="actions">
+          <button class="btn primary small" id="sshInstall" hidden>安装 SSH 客户端</button>
+          <button class="btn primary small" id="tsInstall" hidden>安装 Tailscale</button>
+          <button class="btn primary small" id="tsLogin" hidden>登录</button>
+        </div>
+        <p class="footnote" id="sshNote" hidden></p>
+        <p class="footnote" id="tsInstallNote" hidden></p>
+        <p class="footnote" id="tsAuth" hidden></p>
+      </article>
+
+      <article class="card">
+        <div class="card-head">
+          <h2>日志</h2>
+          <span class="hint">最近 40 条</span>
+        </div>
+        <pre class="log" id="logBox">暂无日志</pre>
+        <p class="footnote" id="logFile" hidden></p>
+      </article>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <dialog id="modal">
+    <form method="dialog" class="modal-inner">
+      <h3 id="modalTitle">确认</h3>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions">
+        <button class="btn ghost" value="cancel">取消</button>
+        <button class="btn primary" id="modalOk" value="ok">确认</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/static/common.js" defer></script>
+  <script src="/static/windows.js" defer></script>
+</body>
+</html>

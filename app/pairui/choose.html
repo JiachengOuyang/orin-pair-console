@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orin Pair · 选择角色</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="role-chooser">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">OP</div>
+      <div>
+        <h1>Orin Pair 控制台</h1>
+        <p>先选这台机器做什么 · 系统自动检测</p>
+      </div>
+    </div>
+    <div class="chips" id="chips"></div>
+  </header>
+
+  <main class="chooser">
+    <section class="card os-card">
+      <div class="card-head">
+        <div><span class="step">01</span><h2>这台机器</h2></div>
+        <span class="hint" id="localHint"></span>
+      </div>
+      <div class="kv" id="machineInfo"></div>
+      <div class="addr-list" id="addrList"></div>
+    </section>
+
+    <div class="role-grid">
+      <article class="role-card control" data-role="control">
+        <div class="role-top">
+          <span class="role-icon">CTL</span>
+          <span class="role-badge" id="controlBadge">检查中</span>
+        </div>
+        <h2>控制端</h2>
+        <p class="role-desc">扫描另一台机器，输入配对码，写入 ssh 配置并测试连接。</p>
+        <ul class="role-list">
+          <li>放在你手边这台机器上</li>
+          <li>只监听 127.0.0.1，不接受远程访问</li>
+        </ul>
+        <p class="role-note" id="controlNote"></p>
+        <button class="btn primary role-btn" id="controlBtn" type="button" disabled>进入控制端</button>
+      </article>
+
+      <article class="role-card controlled" data-role="controlled">
+        <div class="role-top">
+          <span class="role-icon">SRV</span>
+          <span class="role-badge" id="controlledBadge">检查中</span>
+        </div>
+        <h2>被控端</h2>
+        <p class="role-desc">让另一台机器连进来：显示配对码、管理公钥、选择连接方式。</p>
+        <ul class="role-list">
+          <li>目前只支持 Ubuntu / Linux</li>
+          <li>普通用户可配对；改网络、写其他账号需要 root</li>
+        </ul>
+        <p class="role-note" id="controlledNote"></p>
+        <button class="btn primary role-btn" id="controlledBtn" type="button" disabled>进入被控端</button>
+      </article>
+    </div>
+
+    <p class="footnote">
+      选择后本程序会切换成对应角色。要换角色，重新启动即可。
+      被控端普通用户也能配对；要改网络或装环境，在被控端页面里输入密码切到 root 即可。控制端用普通用户运行。
+    </p>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <div class="switching" id="switching" hidden>
+    <div class="switch-box">
+      <strong>正在切换角色…</strong>
+      <span id="switchText">准备控制台</span>
+    </div>
+  </div>
+
+  <script src="/static/common.js" defer></script>
+  <script src="/static/choose.js" defer></script>
+</body>
+</html>
