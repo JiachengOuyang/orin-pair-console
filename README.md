@@ -1,6 +1,6 @@
 # Orin Pair Console
 
-![version](https://img.shields.io/badge/version-0.9.0-blue)
+![version](https://img.shields.io/badge/version-0.10.0-blue)
 ![python](https://img.shields.io/badge/python-3.x-3776AB?logo=python&logoColor=white)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Ubuntu-lightgrey)
 ![dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
@@ -10,7 +10,7 @@ Windows 与 Ubuntu / Orin NX 之间的可视化 SSH 配对工具。控制端扫�
 ## 功能概览
 
 - **控制端**（Windows，或 Ubuntu 桌面）：扫描 Orin、输码配对、测试连接、更新主机指纹、复制 ssh 命令、解除配对。
-- **被控端**（Ubuntu / Orin）：显示配对码、环境准备、检测 USB / mDNS、设置静态 IP、放行防火墙、安装和登录 Tailscale。
+- **被控端**（Ubuntu / Orin）：显示配对码、环境准备、检测 USB / mDNS、设置静态 IP、放行防火墙、安装 / 登录 / 重启 Tailscale。
 - **两端都能解除配对**：被控端删公钥，控制端删 `Host orin` 段；控制端私钥保留。
 - **运行数据隔离**：状态、密钥、ssh 配置、`known_hosts`、日志都在 `app/runtime/`，不写真实的 `~/.ssh`。
 - **安全设计**：Host 白名单、POST 请求标识、配对码统一节流、令牌只存哈希、日志不记配对码/令牌/密码。
@@ -53,4 +53,4 @@ start.bat
 
 ## 版本
 
-当前版本 **0.9.0**，对应标签 `v0.9.0`。
+当前版本 **0.10.0**（新标签尚未创建，上一个标签是 `v0.9.0`）。

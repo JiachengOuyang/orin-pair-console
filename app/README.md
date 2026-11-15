@@ -1,6 +1,6 @@
 # Orin Pair Console
 
-当前版本：**0.9.0**
+当前版本：**0.10.0**
 
 > 本文是完整手册，覆盖操作细节、安全边界和验证记录。项目概览和最短启动见仓库根目录的 [README.md](../README.md)。
 
@@ -143,7 +143,9 @@ start.bat
 2. 被控端页面右侧「远程组网」卡片显示本机 `100.x` 地址和在线对端，顶部出现 `Tailscale` 标记。
 3. 控制端点“扫描”，会通过 `tailscale status` 自动把在线对端（最多 8 个）加入候选，结果里标 `Tailscale`；也可以直接手填 `100.x.x.x`。
 
-默认仍然只读：只有点「安装 / 登录」按钮时才执行对应命令，平时只读取 `tailscale status --json`，不改任何 Tailscale 配置。安装和登录都不会替你授权：Ubuntu 需要 root，Windows 需要过 UAC，登录仍然要在浏览器里用同一账号确认。被控端的安装/登录接口除本机外，也接受带着配对码的远程页面（和读状态、远程解除同一凭证），方便 Orin 没接显示器时从 Windows 页面上操作。
+默认仍然只读：只有点「安装 / 登录 / 重启服务」按钮时才执行对应命令，平时只读取 `tailscale status --json`，不改任何 Tailscale 配置。安装和登录都不会替你授权：Ubuntu 需要 root，Windows 需要过 UAC，登录仍然要在浏览器里用同一账号确认。被控端的安装 / 登录 / 重启接口除本机外，也接受带着配对码的远程页面（和读状态、远程解除同一凭证），方便 Orin 没接显示器时从 Windows 页面上操作。
+
+Tailscale 守护进程偶尔会卡在 `NoState`：`tailscale status` 提示 `Tailscale is starting. Please wait.`，页面显示「已安装，未连接」或「服务未就绪」，点「登录」也拿不到授权链接。这时点卡片里的「重启 Tailscale 服务」：Windows 会先拉起 `tailscale-ipn.exe` 托盘程序（不需要 UAC，睡眠恢复后常见这种情况），仍没恢复再通过 UAC 执行 `Restart-Service Tailscale -Force`；Ubuntu 需要先在「环境准备」里切 root，再执行 `systemctl restart tailscaled`。恢复后按钮会消失，再点一次「登录」即可；Windows 如果两步之后仍是 `NoState`，需要重启系统或修复安装 Tailscale。演示模式只返回提示，不执行重启。
 
 普通用户读不到 Tailscale 状态时（页面提示权限不足），执行一次 `sudo tailscale set --operator=$USER`，或者以 root 启动本程序；Windows 控制端一般可以直接读。
 
@@ -202,7 +204,14 @@ python app/pair_console.py --demo --no-open --port 8770
 - 连接失败时返回“旧指纹已清除，但重新连接失败”，同时确认其他主机记录没被动；未配对时直接拒绝。
 - 演示模式下按钮可点、提示会写日志，删除的是演示目录里的 `known_hosts`。真实重装后的指纹变化还没在实机重演。
 
-尚未验证的部分：USB device / mDNS 实际连通、静态 IP 应用与还原、防火墙放行（需要 root 和实体 Orin）；v0.6.0 的页面安装/登录按钮还没有在真实 Orin 和未安装 Tailscale 的 Windows 上点过；v0.7.0 的日志归属（root 运行时 chown 给目标账号）和 600 权限还没在 Linux 实机复测；v0.8.0 的 OpenSSH 安装还没有在真实缺 ssh 的 Windows 上点过。
+**2026-11-15，v0.10.0（Windows 本机，真实 Tailscale 服务）：**
+
+- 本机 Tailscale 守护进程卡在 `NoState`，`tailscale status` 提示 `Tailscale is starting. Please wait.`；控制端页面显示「已安装，未连接」，登录按钮被禁用，出现「重启 Tailscale 服务」和“服务未就绪”说明。
+- 第一次点重启后没有及时确认 UAC，接口返回 5（“可能取消了 UAC 授权”），页面提示后按钮恢复；第二次确认 UAC，`tailscaled` 进程重建，但状态仍是 `NoState`。
+- 随后启动 `tailscale-ipn.exe` 托盘程序，后端恢复 `Running`，本机拿到 `100.x` 地址，对端列表正常显示（Orin 当时离线）。据此接口改为先拉起托盘程序、仍没恢复再重启服务。
+- 托盘程序这一步已在实机验证；Linux 的 `systemctl restart tailscaled` 分支和 Ubuntu 页面按钮还没在实机复测。
+
+尚未验证的部分：USB device / mDNS 实际连通、静态 IP 应用与还原、防火墙放行（需要 root 和实体 Orin）；v0.6.0 的页面安装/登录按钮还没有在真实 Orin 和未安装 Tailscale 的 Windows 上点过；v0.7.0 的日志归属（root 运行时 chown 给目标账号）和 600 权限还没在 Linux 实机复测；v0.8.0 的 OpenSSH 安装还没有在真实缺 ssh 的 Windows 上点过；v0.10.0 的“先拉托盘、再重启服务”完整路径和 Ubuntu 的重启分支也还没在实机复测。
 
 ## 安全边界
 
@@ -223,8 +232,8 @@ python app/pair_console.py --demo --no-open --port 8770
 - `app/runtime/` 里只有程序自己的文件，临时文件启动和退出都会清理，不会散落到家目录或系统临时目录。
 - 解除配对不会删除控制端私钥，也不会删除目标账号。要彻底清理，删除 `app/runtime/` 对应角色目录即可。
 - 「更新指纹」只删除 `app/runtime/controller/ssh/known_hosts` 里 `orin` 开头的行，其他主机的记录不动；接口只接受本机请求。
-- Tailscale 默认只读：平时只执行 `tailscale status --json`；只有点页面上的「安装 / 登录」按钮才执行安装脚本或 `tailscale up`。被控端安装需要 root，登录链接要你自己在浏览器授权；控制端安装走 winget 并弹 UAC，程序不能替你确认。
-- 被控端的 Tailscale 安装/登录接口只接受本机访问，或带正确配对码的远程页面；配对码校验和其他入口共用同一套节流闸门。
+- Tailscale 默认只读：平时只执行 `tailscale status --json`；只有点页面上的「安装 / 登录 / 重启服务」按钮才执行安装脚本、`tailscale up` 或重启服务。被控端安装和重启需要 root，登录链接要你自己在浏览器授权；控制端安装弹 UAC，重启服务会先拉起托盘程序，必要时再通过 UAC 执行 `Restart-Service Tailscale -Force`，程序不能替你确认。
+- 被控端的 Tailscale 安装 / 登录 / 重启接口只接受本机访问，或带正确配对码的远程页面；配对码校验和其他入口共用同一套节流闸门。
 - 已知限制：两端通信用明文 HTTP，配对码、令牌和公钥在局域网内可被嗅探；只在可信网络使用。走 Tailscale 时外层由 WireGuard 加密，但页面本身仍是 HTTP。私钥无口令，这是免交互连接的代价。
 
 ## 常见问题
@@ -239,6 +248,7 @@ python app/pair_console.py --demo --no-open --port 8770
 | 被控端页面从另一台机器打不开 | 确认绑定 `0.0.0.0`、没加 `--demo`；`sudo ufw allow from <网段> to any port 8765 proto tcp`，选择页还要放行 `8770` |
 | 扫描找不到 | 手填 `orin.local:8765` 或 `192.168.55.1:8765`；先确认被控端页面能打开 |
 | 跨网段 / NAT / 虚拟机能上网但扫描找不到 | 两端装 Tailscale 并登录同一账号，控制端扫描会自动列出 `100.x` 对端；见“远程组网” |
+| 点「登录」没反应，一直显示「已安装，未连接」 | 多半是 Tailscale 服务卡在 `NoState`（`tailscale status` 提示 starting）：点「重启 Tailscale 服务」；Windows 会先拉起托盘程序，必要时再确认 UAC，Ubuntu 先切 root，恢复后再点「登录」 |
 | 配对码不正确 | 用被控端页面当前显示的 6 位码；连续错 8 次会自动换码 |
 | 提示“目标账号不存在” | 先在页面「环境准备」里点“安装 / 修复”，或跑 `app/setup.sh`；脚本和页面都不新建账号，也可用 `--target-user` 指定已有账号 |
 | 文件都存在哪 | 都在 `app/runtime/`：控制端 `app/runtime/controller/`，被控端 `app/runtime/orin/`；启动时会打印实际路径 |
@@ -252,6 +262,7 @@ python app/pair_console.py --demo --no-open --port 8770
 
 ## 变更记录
 
+- **v0.10.0 · 2026-11-15 · 重启 Tailscale 服务按钮**：Tailscale 守护进程卡在 `NoState`（`tailscale status` 提示 `Tailscale is starting. Please wait.`）时，页面会显示「服务未就绪」，登录按钮拿不到授权链接。两端卡片新增「重启 Tailscale 服务」：Windows 先拉起 `tailscale-ipn.exe` 托盘程序，仍没恢复再通过 UAC 执行 `Restart-Service Tailscale -Force`；Ubuntu 以 root 执行 `systemctl restart tailscaled`。恢复后自动等状态更新，再点「登录」即可。状态接口同时带回 Tailscale 的 `Health` 文案。接口 `/api/tailscale/restart` 在控制端只接受本机请求，在被控端接受本机或带配对码的远程页面。
 - **v0.9.0 · 2026-11-15 · 更新主机指纹按钮**：控制端「配对信息」新增「更新指纹」。点确认后会删除 `known_hosts` 里 `orin` 开头的行（其他主机不动），再用当前 `Host orin` 配置连一次，让 ssh 以 `accept-new` 记录 Orin 当前指纹，提示里显示新的 `SHA256:` 指纹。用于 Orin 重装或换机后出现主机指纹变化的场景；连不上时旧记录也会被清掉，可稍后再点。接口 `/api/hostkey/refresh` 只接受本机请求。
 - **v0.8.0 · 2026-11-15 · 控制端 SSH 客户端检测与安装**：Windows「运行环境」继续显示 `ssh.exe` 路径；找不到时新增「安装 SSH 客户端」按钮，通过 Windows 可选功能安装 `OpenSSH.Client`（`Add-WindowsCapability`，弹 UAC），装好后自动重新检测，不用重启程序。仍然支持 Git for Windows 自带的 ssh；接口只接受本机请求，演示模式不执行安装。
 - **v0.7.0 · 2026-11-15 · 日志落盘**：页面和终端里的日志现在同时追加写入 `pair-console.log`，控制端在 `app/runtime/controller/`、被控端在 `app/runtime/orin/`，跟随 `--state-dir`；启动横幅和页面「日志」卡片下方显示实际路径。单文件 2 MB 上限，写满后轮换成 `pair-console.log.1`，权限 600，不记录配对码、令牌和密码。日志文件写入失败时静默退回只输出到终端。已在 Windows 演示模式下验证写入、追加、轮换和页面路径展示。

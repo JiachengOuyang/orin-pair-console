@@ -93,7 +93,11 @@
     const tsState = S.tailscale || {};
     const tsInstall = $('#tsInstall');
     const tsLogin = $('#tsLogin');
+    const tsRestart = $('#tsRestart');
     const tsNote = $('#tsInstallNote');
+    const tsHealth = (tsState.health || []).join(' ');
+    const tsStuck = !!tsState.available && !tsState.up &&
+      (String(tsState.state || '') === 'NoState' || /starting|no state/i.test(tsHealth));
     const sshInstall = $('#sshInstall');
     const sshNote = $('#sshNote');
     sshInstall.hidden = !!S.ssh_found;
@@ -102,8 +106,13 @@
       '需要在 UAC 窗口点“是”。系统里没有这个功能时，也可以自己装 Git for Windows，程序会自动用它自带的 ssh。';
     tsInstall.hidden = !!(tsState.up || tsState.available);
     tsLogin.hidden = !tsState.available || !!tsState.up;
+    tsLogin.disabled = tsStuck;
+    tsRestart.hidden = !tsStuck;
     tsNote.hidden = !!tsState.up;
-    if (!tsState.up) {
+    if (tsStuck) {
+      tsNote.textContent = 'Tailscale 服务没有就绪（' + (tsState.state || 'NoState') +
+        '）：点「重启 Tailscale 服务」，在 UAC 里确认后再点「登录」。';
+    } else if (!tsState.up) {
       tsNote.textContent = tsState.available
         ? '已安装但没登录：点上方「登录」，会打开浏览器让你登录同一 Tailscale 账号。'
         : '点「安装 Tailscale」会调用 winget 并弹出 UAC；装完后页面刷新会显示登录按钮，扫描也能自动列出 100.x 对端。';
@@ -429,6 +438,28 @@
     } finally {
       await refresh();
       button.textContent = '登录';
+    }
+  });
+
+  $('#tsRestart').addEventListener('click', async function () {
+    const ok = await U.confirm({
+      title: '重启 Tailscale 服务',
+      html: '<p>会先尝试拉起 Tailscale 托盘程序；如果服务仍卡在 <code>NoState</code>，再以管理员权限执行 <code>Restart-Service Tailscale -Force</code>（会弹 UAC）。</p>' +
+        '<p>用于 Tailscale 卡在 <code>NoState</code> / “starting” 的情况；恢复后需要再点「登录」。</p>',
+      okText: '重启'
+    });
+    if (!ok) return;
+    const button = $('#tsRestart');
+    button.disabled = true;
+    button.textContent = '重启中…';
+    try {
+      const data = await U.api('POST', '/api/tailscale/restart', {});
+      if (!data.ok) U.toast(data.error || '重启失败', 'bad');
+      else U.toast(data.message || data.note || '已请求重启，稍等几秒刷新', data.started ? 'warn' : 'ok');
+    } finally {
+      await refresh();
+      button.textContent = '重启 Tailscale 服务';
+      button.disabled = false;
     }
   });
 

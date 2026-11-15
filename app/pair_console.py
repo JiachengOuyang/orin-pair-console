@@ -48,7 +48,7 @@ try:
 except ImportError:  # Windows
     pwd = None
 
-VERSION = "0.9.0"
+VERSION = "0.10.0"
 APP_DIR = Path(__file__).resolve().parent
 UI_DIR = APP_DIR / "pairui"
 RUNTIME_DIR = APP_DIR / "runtime"
@@ -511,6 +511,7 @@ def tailscale_info(force: bool = False):
         "hostname": "",
         "dns_name": "",
         "peers": [],
+        "health": [],
         "error": "",
     }
     exe = _tailscale_exe()
@@ -531,6 +532,9 @@ def tailscale_info(force: bool = False):
             info["ip"] = _first_ipv4(self_node.get("TailscaleIPs"))
             info["hostname"] = str(self_node.get("HostName") or "")
             info["dns_name"] = str(self_node.get("DNSName") or "").rstrip(".")
+            health = data.get("Health") or []
+            if isinstance(health, list):
+                info["health"] = [str(item)[:200] for item in health[:5]]
             peers = []
             for peer in (data.get("Peer") or {}).values():
                 if not isinstance(peer, dict) or not peer.get("Online"):
@@ -615,6 +619,83 @@ def tailscale_login(timeout: float = 10.0):
         "url": "",
         "state": state,
         "note": "已拉起 tailscale up，但还没拿到授权链接；稍等几秒刷新，或确认能访问 login.tailscale.com。",
+    }
+
+
+def tailscale_restart(wait: float = 20.0):
+    """修复卡在 NoState / starting 的 Tailscale。
+
+    Windows 先尝试拉起托盘程序（不需要 UAC，常见于睡眠恢复后守护进程
+    没有后端）；仍没恢复再弹 UAC 重启服务。Linux 需要 root，重启
+    tailscaled。最后等 `tailscale status` 回到可用状态。
+    """
+    exe = _tailscale_exe()
+    if not exe:
+        return {"ok": False, "error": "没找到 tailscale 命令，先安装"}
+
+    info = tailscale_info(force=True)
+    if info.get("up"):
+        return {"ok": True, "already": True, "state": info.get("state")}
+
+    if is_windows():
+        gui = Path(exe).with_name("tailscale-ipn.exe")
+        if gui.exists():
+            try:
+                subprocess.Popen([str(gui)])
+            except OSError:
+                pass
+            else:
+                log("已启动 Tailscale 托盘程序，等待服务恢复")
+                deadline = time.time() + min(wait, 10.0)
+                while time.time() < deadline:
+                    time.sleep(1.0)
+                    data = tailscale_info(force=True)
+                    state = data.get("state") or ""
+                    if state and state != "NoState":
+                        log(f"Tailscale 状态已恢复：{state}")
+                        return {
+                            "ok": True,
+                            "state": state,
+                            "message": "已启动 Tailscale 托盘程序，服务已恢复",
+                        }
+        try:
+            import ctypes
+
+            params = ('-NoProfile -NonInteractive -WindowStyle Hidden -Command '
+                      '"Restart-Service -Name Tailscale -Force"')
+            rc = ctypes.windll.shell32.ShellExecuteW(
+                None, "runas", "powershell.exe", params, None, 0)
+        except Exception as exc:
+            return {"ok": False, "error": f"启动重启失败：{exc}"}
+        if rc <= 32:
+            return {"ok": False, "error": "重启没有启动，可能取消了 UAC 授权"}
+    else:
+        if not is_root():
+            return {"ok": False, "error": "重启 tailscaled 需要 root：先在「环境准备」里切换为 root"}
+        rc, out, err = run(["systemctl", "restart", "tailscaled"], timeout=30)
+        if rc != 0:
+            msg = (err or out or "").strip()
+            return {"ok": False, "error": (msg[-500:] or "systemctl restart tailscaled 失败")}
+
+    log("已请求重启 Tailscale 服务")
+    deadline = time.time() + wait
+    state = ""
+    while time.time() < deadline:
+        time.sleep(1.0)
+        data = tailscale_info(force=True)
+        state = data.get("state") or ""
+        if state and state != "NoState":
+            break
+
+    if state and state != "NoState":
+        log(f"Tailscale 服务已重启，当前状态：{state}")
+        return {"ok": True, "state": state, "message": "Tailscale 服务已重启"}
+    return {
+        "ok": True,
+        "started": True,
+        "state": state,
+        "note": "已请求重启 Tailscale 服务；如果刚在 UAC 里确认，稍等几秒刷新页面再登录。"
+                "仍显示未就绪时，重启系统或修复安装 Tailscale。",
     }
 
 
@@ -1050,6 +1131,12 @@ class OrinService:
         if self.demo:
             return {"ok": True, "url": "", "note": "演示模式：不执行登录"}
         return tailscale_login()
+
+    def tailscale_restart(self):
+        """页面按钮：重启 tailscaled，处理 NoState / starting 卡住。"""
+        if self.demo:
+            return {"ok": True, "state": "NeedsLogin", "message": "演示模式：不执行重启"}
+        return tailscale_restart()
 
     def _nmcli_connections(self):
         if self.demo:
@@ -1634,6 +1721,12 @@ class WindowsService:
         if self.demo:
             return {"ok": True, "url": "", "note": "演示模式：不执行登录"}
         return tailscale_login()
+
+    def tailscale_restart(self):
+        """页面按钮：先拉起托盘程序，必要时再重启 Tailscale 服务。"""
+        if self.demo:
+            return {"ok": True, "state": "NeedsLogin", "message": "演示模式：不执行重启"}
+        return tailscale_restart()
 
     def _has_managed_block(self) -> bool:
         return bool(self._managed_text())
@@ -2411,12 +2504,17 @@ class Handler(BaseHTTPRequestHandler):
             result = service.run_setup()
             self._send_json(200 if result.get("ok") else 400, result)
             return
-        if path in ("/api/tailscale/install", "/api/tailscale/up"):
+        if path in ("/api/tailscale/install", "/api/tailscale/up", "/api/tailscale/restart"):
             # 本机直接放行；远程页面需要配对码（和读状态、远程解除同一凭证）
             if not self._local() and not self._orin_authorized(body):
                 self._send_json(403, {"ok": False, "error": "需要本机访问或配对码"})
                 return
-            result = service.tailscale_install() if path.endswith("/install") else service.tailscale_up()
+            if path.endswith("/install"):
+                result = service.tailscale_install()
+            elif path.endswith("/up"):
+                result = service.tailscale_up()
+            else:
+                result = service.tailscale_restart()
             self._send_json(200 if result.get("ok") else 400, result)
             return
         if path == "/api/relaunch-root":
@@ -2647,8 +2745,13 @@ class Handler(BaseHTTPRequestHandler):
             result = service.remote_check()
             self._send_json(200, result)
             return
-        if path in ("/api/tailscale/install", "/api/tailscale/up"):
-            result = service.tailscale_install() if path.endswith("/install") else service.tailscale_up()
+        if path in ("/api/tailscale/install", "/api/tailscale/up", "/api/tailscale/restart"):
+            if path.endswith("/install"):
+                result = service.tailscale_install()
+            elif path.endswith("/up"):
+                result = service.tailscale_up()
+            else:
+                result = service.tailscale_restart()
             self._send_json(200 if result.get("ok") else 400, result)
             return
         if path == "/api/ssh/install":

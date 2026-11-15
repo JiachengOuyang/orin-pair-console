@@ -190,9 +190,12 @@
     // 远程组网（Tailscale）
     const ts = S.tailscale || {};
     const tsPeers = ts.peers || [];
+    const tsHealth = (ts.health || []).join(' ');
+    const tsStuck = !!ts.available && !ts.up &&
+      (String(ts.state || '') === 'NoState' || /starting|no state/i.test(tsHealth));
     const tsRows = [
       ['客户端', ts.available ? '已安装' : '未安装'],
-      ['状态', ts.up ? '已连接' : (ts.available ? (ts.state || '未连接') : '—')],
+      ['状态', ts.up ? '已连接' : (ts.available ? (ts.state === 'NoState' ? '未就绪' : (ts.state || '未连接')) : '—')],
       ['地址', ts.ip || '—'],
       ['在线对端', tsPeers.length
         ? tsPeers.map(function (p) { return p.hostname; }).join('、')
@@ -202,16 +205,19 @@
       return '<span class="k">' + U.esc(row[0]) + '</span><span class="v mono">' +
         U.esc(row[1]) + '</span>';
     }).join('');
-    $('#tsHint').textContent = ts.up ? '两端同一账号' : (ts.available ? '待登录' : '可选');
+    $('#tsHint').textContent = ts.up ? '两端同一账号' : (tsStuck ? '服务未就绪' : (ts.available ? '待登录' : '可选'));
     const canTs = S.is_root || S.demo;
     const tsInstall = $('#tsInstall');
     const tsLogin = $('#tsLogin');
+    const tsRestart = $('#tsRestart');
     const tsCopy = $('#tsCopy');
     tsInstall.hidden = ts.available;
     tsLogin.hidden = !ts.available || !!ts.up;
+    tsRestart.hidden = !(canTs && tsStuck);
     tsCopy.hidden = !ts.up;
     tsInstall.disabled = !canTs || busy;
-    tsLogin.disabled = !canTs || busy;
+    tsLogin.disabled = !canTs || busy || tsStuck;
+    tsRestart.disabled = !canTs || busy;
     const tsError = String(ts.error || '');
     const tsPerm = /permission|denied|access|root/i.test(tsError);
     if (ts.up) {
@@ -224,6 +230,9 @@
       $('#tsNote').textContent = '跨网段、NAT 或校园网隔离时用：点上方「安装 Tailscale」，装完再点「登录」；两台机器登录同一账号，各得一个 100.x 地址。';
     } else if (tsPerm) {
       $('#tsNote').textContent = '读不到 Tailscale 状态（权限不足）：切换为 root 后再试，或执行 sudo tailscale set --operator=$USER。';
+    } else if (tsStuck) {
+      $('#tsNote').textContent = 'Tailscale 服务没有就绪（' + (ts.state || 'NoState') +
+        '）：点「重启 Tailscale 服务」，以 root 重启后再点「登录」。';
     } else {
       $('#tsNote').textContent = '已安装但没登录：点上方「登录」，按提示在浏览器完成授权。' +
         (tsError ? '（' + tsError + '）' : '');
@@ -466,6 +475,28 @@
     } finally {
       await refresh();
       button.textContent = '登录';
+    }
+  });
+
+  $('#tsRestart').addEventListener('click', async function () {
+    const ok = await U.confirm({
+      title: '重启 Tailscale 服务',
+      html: '<p>会以 root 执行 <code>systemctl restart tailscaled</code>。</p>' +
+        '<p>用于 Tailscale 卡在 <code>NoState</code> / “starting” 的情况；重启后需要再点「登录」。</p>',
+      okText: '重启'
+    });
+    if (!ok) return;
+    const button = $('#tsRestart');
+    button.disabled = true;
+    button.textContent = '重启中…';
+    try {
+      const data = await U.api('POST', '/api/tailscale/restart', {}, authHeaders());
+      if (!data.ok) U.toast(data.error || '重启失败', 'bad');
+      else U.toast(data.message || data.note || '已请求重启，稍等几秒刷新', data.started ? 'warn' : 'ok');
+    } finally {
+      await refresh();
+      button.textContent = '重启 Tailscale 服务';
+      button.disabled = false;
     }
   });
 

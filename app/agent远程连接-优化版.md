@@ -780,7 +780,7 @@ headers['X-Orin-Pair'] = '1';
 | `POST /api/test` | 控制端 | 用受管配置执行 `ssh orin echo link-ok` |
 | `POST /api/hostkey/refresh` | 控制端 | 删除 `known_hosts` 里 `orin` 的行并重新握手 |
 | `POST /api/ssh/install` | 控制端 | 用 Windows 可选功能装 OpenSSH Client |
-| `POST /api/tailscale/install`、`/up` | 两端 | 安装 Tailscale、拉起登录并返回授权链接 |
+| `POST /api/tailscale/install`、`/up`、`/restart` | 两端 | 安装 Tailscale、拉起登录并返回授权链接、修复卡在 `NoState` 的服务 |
 | `POST /api/network/apply`、`/revert` | Orin | 改/还原静态 IP、检测 mDNS/USB |
 | `POST /api/setup` | Orin | 装 sshd/tmux/avahi、修 `.ssh` 权限、加 dialout |
 | `POST /api/relaunch-root` | Orin | 校验 sudo 密码后原地以 root 重启 |
@@ -806,7 +806,7 @@ headers['X-Orin-Pair'] = '1';
 
 - 控制端用 `client_id + token` 调 `/api/whoami` 判断“Orin 可达 / 已解除 / 不可达”；
 - 解除配对时，控制端带令牌通知被控端删公钥；令牌只能撤销自己那台；
-- 远程打开被控端页面时，用 `X-Pair-Code` 头证明自己知道当前码，可查看状态、解除配对、装/登录 Tailscale，但改网络、换码、切 root 仍只限本机。
+- 远程打开被控端页面时，用 `X-Pair-Code` 头证明自己知道当前码，可查看状态、解除配对、装 / 登录 / 重启 Tailscale，但改网络、换码、切 root 仍只限本机。
 
 配对码校验只有一个入口 `verify_code()`，所有接口共用同一套节流：失败后按 `0.3 + 0.2 × 失败次数` 秒排队（上限 2 秒），尝试过密直接 429；同一来源连续失败 8 次会自动换码。只读轮询（`/api/status`）只受节流限制，不累计换码次数，否则一个停在旧码上的页面会把码反复换掉。
 
@@ -856,20 +856,21 @@ Windows 上找 `ssh` 的顺序是：`ORIN_PAIR_SSH` 环境变量 → `Program Fi
 | 防火墙 | `ufw status`；按本机当前地址推断网段，`ufw allow from <网段> to any port 22 proto tcp` |
 | 环境准备 | 缺什么装什么：`apt-get update` 后 `apt-get install -y` + 缺少的包（`openssh-server` / `tmux` / `avahi-daemon` / `avahi-utils`）；分别 `systemctl enable --now ssh`、`systemctl enable --now avahi-daemon`；`usermod -aG dialout <账号>`；准备 `~/.ssh` 700/600 |
 | 切 root | `sudo -S -v` 校验密码（密码走 stdin，不落盘、不进日志），随后 `exec` 成 root 实例 |
-| Tailscale | 官方 `install.sh`、`systemctl enable --now tailscaled`、`tailscale up` |
+| Tailscale | 官方 `install.sh`、`systemctl enable --now tailscaled`、`tailscale up`、`systemctl restart tailscaled`；Windows 对应 `winget`、`tailscale up`、拉起 `tailscale-ipn.exe`、`Restart-Service Tailscale` |
 
 `app/setup.sh` 和页面「安装 / 修复」做的是同一套常规步骤；脚本额外提供 `--harden`（sshd 加固）和 `--audit`（命令审计），页面不会自动做这两件，避免把远程访问改坏。
 
 ## A.7 Tailscale 集成
 
-- **检测是只读的**：执行 `tailscale status --json`，解析 `BackendState`、`Self`、`Peer`、`AuthURL`，结果缓存 6 秒。页面只展示客户端是否安装、是否连接、本机 `100.x` 地址和在线对端。
+- **检测是只读的**：执行 `tailscale status --json`，解析 `BackendState`、`Self`、`Peer`、`AuthURL`、`Health`，结果缓存 6 秒。页面只展示客户端是否安装、是否连接、本机 `100.x` 地址和在线对端。
 - **控制端扫描**：如果 Tailscale 已连接，把在线对端（最多 8 个）加入候选，结果里标 `Tailscale`；仍然可以手填地址。
 - **安装**：
   - Ubuntu：在 root 下执行 `curl -fsSL https://tailscale.com/install.sh | sh`，再启用 `tailscaled`；
   - Windows：用 `winget install --id Tailscale.Tailscale -e`，通过 `ShellExecuteW(..., "runas", ...)` 弹 UAC 启动。
 - **登录**：后台 `Popen(["tailscale", "up"])`，最多轮询 10 秒，从状态 JSON 里拿 `AuthURL` 返回给页面；页面把授权链接显示成可点的超链接，登录仍然必须由你在浏览器里用同一账号完成。
+- **卡在 NoState / starting 时**：页面把登录按钮禁用并显示「重启 Tailscale 服务」。Windows 先 `Popen` 拉起同目录的 `tailscale-ipn.exe`（睡眠恢复后常见后端没起来，这一步不需要 UAC），等 10 秒；仍没恢复再以管理员权限执行 `Restart-Service Tailscale -Force`。Ubuntu 需要 root，执行 `systemctl restart tailscaled`。恢复后按 `BackendState` 判断，`NeedsLogin` 就可以继续登录。
 - **权限**：普通用户读不到守护进程状态时，页面提示 `sudo tailscale set --operator=$USER` 或以 root 启动。
-- **凭证**：被控端的安装/登录接口允许本机访问，或带正确配对码的远程页面，方便 Orin 没接显示器时从 Windows 操作。
+- **凭证**：被控端的安装 / 登录 / 重启接口允许本机访问，或带正确配对码的远程页面，方便 Orin 没接显示器时从 Windows 操作。
 
 命令行位置可以用 `ORIN_PAIR_TAILSCALE` 覆盖；默认顺序是环境变量 → `PATH` → Windows 的 `Program Files\Tailscale\tailscale.exe`。
 
@@ -911,7 +912,7 @@ app/runtime/
 2. **POST 标识**：必须带 `X-Orin-Pair: 1`；有 `Origin` 时还要求与 `Host` 同源。
 3. **角色权限**：
    - 控制端 API 只接受回环地址；即使手动 `--bind 0.0.0.0`，远程请求也是 403；
-   - 被控端状态、解除、Tailscale 安装/登录：本机，或带当前配对码的远程页面；
+   - 被控端状态、解除、Tailscale 安装 / 登录 / 重启：本机，或带当前配对码的远程页面；
    - 环境准备、改网络、换码、切 root：只接受本机。
 4. **配对码节流**：共用 `verify_code()`，失败延时递增、过密 429、同来源 8 次失败自动换码；配对成功响应不返回新码。
 
@@ -935,7 +936,7 @@ python app/pair_console.py --role windows --demo --no-open --port 8766
 
 - 被控端允许在 Windows 上启动，返回假地址（`192.168.55.1/24`），跳过真实网络和 ssh；
 - 控制端扫描会额外试 `127.0.0.1:8765`，所以同一台机器能跑通“扫描 → 配对 → 测试 → 解除”；
-- Tailscale 状态仍然真实读取（本机装了就能看到自动发现效果），安装/登录按钮只返回提示；
+- Tailscale 状态仍然真实读取（本机装了就能看到自动发现效果），安装 / 登录 / 重启按钮只返回提示；
 - 数据默认仍写 `app/runtime/`，要隔离就加 `--state-dir` / `--ssh-dir`。
 
 开发时的验证手段：`ast.parse` 查 Python 语法、`node --check` 查 JS；接口用临时端口的两个演示实例走 HTTP；Tailscale 状态、安装/登录、SSH 安装分支用打桩（monkeypatch `tailscale_info`、`_find_ssh_tools`、`ShellExecuteW`）验证，避免真的弹 UAC 或改系统。真实环境验证过：VMware Ubuntu 22.04 上普通用户配对/解除、Windows 与真实 Tailscale 对端 `<Orin 的 100.x 地址>` 配对并 `link-ok`。USB device / mDNS 实际连通、静态 IP 应用与还原、防火墙放行、真实缺 ssh 的安装路径仍未在实机验证，细节见 `app/README.md` 的“真实环境验证”。
